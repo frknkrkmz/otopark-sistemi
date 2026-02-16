@@ -1,9 +1,19 @@
 import os
-# 1. KRİTİK AYARLAR: İşlemci uyumsuzluklarını önlemek için hızlandırmayı kapatıyoruz.
-os.environ["FLAGS_use_mkldnn"] = "0"
-os.environ["FLAGS_enable_pir_api"] = "0"
-
 import streamlit as st
+
+# --- SİHİRLİ YAMA (MONKEY PATCH) ---
+# PaddlePaddle 3.0+ sürümünde kaldırılan 'set_optimization_level' fonksiyonunu
+# manuel olarak ekliyoruz ki PaddleOCR hata vermesin.
+import paddle
+try:
+    from paddle.base.libpaddle import AnalysisConfig
+    if not hasattr(AnalysisConfig, 'set_optimization_level'):
+        AnalysisConfig.set_optimization_level = lambda self, x: None
+        print("✅ Paddle 3.0 uyumluluk yaması uygulandı.")
+except Exception as e:
+    print(f"⚠️ Yama uygulanamadı: {e}")
+# -----------------------------------
+
 import cv2
 import numpy as np
 from paddleocr import PaddleOCR
@@ -13,21 +23,20 @@ from PIL import Image
 st.set_page_config(page_title="Otopark Plaka Tanıma", layout="wide")
 
 st.title("☁️ Bulut Otopark Sistemi")
-st.info("Bu sistem 7/24 Aktiftir.")
+st.info("Sistem Hazır! (Paddle 3.0 Uyumlu)")
 
 # OCR Modelini Yükle
 @st.cache_resource
 def load_model():
-    # use_angle_cls=False diyerek 'cls' (yön bulma) özelliğini kökten kapatıyoruz.
-    # enable_mkldnn=False diyerek işlemci hatasını önlüyoruz.
+    # mkldnn kapatıyoruz (Hızlandırma hatasını önlemek için)
     return PaddleOCR(lang='en', use_angle_cls=False, enable_mkldnn=False)
 
 try:
     with st.spinner("Sistem Hazırlanıyor..."):
         ocr_model = load_model()
-    st.success("✅ Sistem Hazır!")
+    st.success("✅ Motor Çalışıyor!")
 except Exception as e:
-    st.error(f"Model yüklenirken hata: {e}")
+    st.error(f"Kritik Hata: {e}")
 
 # Otopark Seçimi
 otoparklar = ["Kadıköy", "Beşiktaş", "Nişantaşı"]
@@ -52,15 +61,13 @@ if st.button("Analizi Başlat"):
 
                 # 2. OCR İşlemi
                 if img is not None:
-                    # --- DÜZELTME BURADA YAPILDI ---
-                    # Parantez içindeki 'cls=False' silindi.
-                    # Sadece 'img' gönderiyoruz. Model zaten ayarlarından ne yapacağını biliyor.
+                    # Sadece resmi veriyoruz
                     result = ocr_model.ocr(img)
 
                     # 3. Sonucu Yakala
                     plaka_metni = "Okunamadı"
                     if result and result[0]:
-                        # En güvenilir metinleri al (Confidence değeri varsa)
+                        # En güvenilir metinleri al
                         txts = [line[1][0] for line in result[0] if line[1]] 
                         plaka_metni = ", ".join(txts)
                     
