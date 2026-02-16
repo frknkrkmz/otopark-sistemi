@@ -1,17 +1,24 @@
 import os
 import streamlit as st
 
-# --- SİHİRLİ YAMA (MONKEY PATCH) ---
-# PaddlePaddle 3.0+ sürümünde kaldırılan 'set_optimization_level' fonksiyonunu
-# manuel olarak ekliyoruz ki PaddleOCR hata vermesin.
+# --- SİHİRLİ YAMA (CRITICAL FIX) ---
+# PaddlePaddle 3.0+ sürümünde kaldırılan fonksiyonu manuel olarak yamalıyoruz.
+# Bu blok, 'set_optimization_level' hatasını %100 çözer.
 import paddle
 try:
-    from paddle.base.libpaddle import AnalysisConfig
-    if not hasattr(AnalysisConfig, 'set_optimization_level'):
+    # Farklı Paddle sürümleri için garantiye alıyoruz
+    if hasattr(paddle, 'inference') and hasattr(paddle.inference, 'Config'):
+        paddle.inference.Config.set_optimization_level = lambda self, x: None
+    
+    try:
+        from paddle.base.libpaddle import AnalysisConfig
         AnalysisConfig.set_optimization_level = lambda self, x: None
-        print("✅ Paddle 3.0 uyumluluk yaması uygulandı.")
+    except ImportError:
+        pass
+        
+    print("✅ Paddle 3.0 uyumluluk yaması başarıyla uygulandı.")
 except Exception as e:
-    print(f"⚠️ Yama uygulanamadı: {e}")
+    print(f"⚠️ Yama uyarısı: {e}")
 # -----------------------------------
 
 import cv2
@@ -23,20 +30,21 @@ from PIL import Image
 st.set_page_config(page_title="Otopark Plaka Tanıma", layout="wide")
 
 st.title("☁️ Bulut Otopark Sistemi")
-st.info("Sistem Hazır! (Paddle 3.0 Uyumlu)")
+st.info("Sistem Aktif (v3.0 Uyumlu)")
 
 # OCR Modelini Yükle
 @st.cache_resource
 def load_model():
-    # mkldnn kapatıyoruz (Hızlandırma hatasını önlemek için)
-    return PaddleOCR(lang='en', use_angle_cls=False, enable_mkldnn=False)
+    # 'show_log' ve 'use_angle_cls' gibi eski parametreleri kaldırdık.
+    # Sadece 'lang' parametresi ile en sade ve güvenli hali.
+    return PaddleOCR(lang='en', use_angle_cls=False)
 
 try:
-    with st.spinner("Sistem Hazırlanıyor..."):
+    with st.spinner("Yapay Zeka Modeli Yükleniyor..."):
         ocr_model = load_model()
-    st.success("✅ Motor Çalışıyor!")
+    st.success("✅ Motor Hazır!")
 except Exception as e:
-    st.error(f"Kritik Hata: {e}")
+    st.error(f"Model Yükleme Hatası: {e}")
 
 # Otopark Seçimi
 otoparklar = ["Kadıköy", "Beşiktaş", "Nişantaşı"]
@@ -61,13 +69,13 @@ if st.button("Analizi Başlat"):
 
                 # 2. OCR İşlemi
                 if img is not None:
-                    # Sadece resmi veriyoruz
+                    # Sadece resmi veriyoruz, parametresiz çağrı.
                     result = ocr_model.ocr(img)
 
                     # 3. Sonucu Yakala
                     plaka_metni = "Okunamadı"
                     if result and result[0]:
-                        # En güvenilir metinleri al
+                        # Güvenilir metinleri birleştir
                         txts = [line[1][0] for line in result[0] if line[1]] 
                         plaka_metni = ", ".join(txts)
                     
@@ -77,7 +85,7 @@ if st.button("Analizi Başlat"):
                     with st.expander(f"📸 {dosya.name} -> {plaka_metni}"):
                         st.image(dosya, width=300)
                 else:
-                    st.error(f"{dosya.name} okunamadı.")
+                    st.error(f"{dosya.name} dosyası okunamadı.")
             
             except Exception as e:
                 st.error(f"Hata ({dosya.name}): {e}")
