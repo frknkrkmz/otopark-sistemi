@@ -1,8 +1,7 @@
 import os
-# 1. KRİTİK AYAR: Hızlandırma modunu (MKLDNN) zorla kapatıyoruz.
-# Bu satırlar importlardan ÖNCE gelmeli.
+# 1. KRİTİK AYARLAR: İşlemci uyumsuzluklarını önlemek için hızlandırmayı kapatıyoruz.
 os.environ["FLAGS_use_mkldnn"] = "0"
-os.environ["FLAGS_enable_pir_api"] = "0" 
+os.environ["FLAGS_enable_pir_api"] = "0"
 
 import streamlit as st
 import cv2
@@ -19,9 +18,9 @@ st.info("Bu sistem 7/24 Aktiftir.")
 # OCR Modelini Yükle
 @st.cache_resource
 def load_model():
-    # enable_mkldnn=False diyerek hatayı kökten çözüyoruz.
-    # use_angle_cls=False ile gereksiz açı kontrolünü kapatıp hız kazanıyoruz.
-    return PaddleOCR(lang='en', enable_mkldnn=False, use_angle_cls=False)
+    # use_angle_cls=False diyerek 'cls' (yön bulma) özelliğini kökten kapatıyoruz.
+    # enable_mkldnn=False diyerek işlemci hatasını önlüyoruz.
+    return PaddleOCR(lang='en', use_angle_cls=False, enable_mkldnn=False)
 
 try:
     with st.spinner("Sistem Hazırlanıyor..."):
@@ -53,13 +52,15 @@ if st.button("Analizi Başlat"):
 
                 # 2. OCR İşlemi
                 if img is not None:
-                    # cls=True parametresini kaldırdık, düz okuma yapacak.
-                    result = ocr_model.ocr(img, cls=False)
+                    # --- DÜZELTME BURADA YAPILDI ---
+                    # Parantez içindeki 'cls=False' silindi.
+                    # Sadece 'img' gönderiyoruz. Model zaten ayarlarından ne yapacağını biliyor.
+                    result = ocr_model.ocr(img)
 
                     # 3. Sonucu Yakala
                     plaka_metni = "Okunamadı"
                     if result and result[0]:
-                        # En güvenilir metinleri al
+                        # En güvenilir metinleri al (Confidence değeri varsa)
                         txts = [line[1][0] for line in result[0] if line[1]] 
                         plaka_metni = ", ".join(txts)
                     
