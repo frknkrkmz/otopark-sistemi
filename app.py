@@ -1,3 +1,9 @@
+import os
+# 1. KRİTİK AYAR: Hızlandırma modunu (MKLDNN) zorla kapatıyoruz.
+# Bu satırlar importlardan ÖNCE gelmeli.
+os.environ["FLAGS_use_mkldnn"] = "0"
+os.environ["FLAGS_enable_pir_api"] = "0" 
+
 import streamlit as st
 import cv2
 import numpy as np
@@ -13,8 +19,9 @@ st.info("Bu sistem 7/24 Aktiftir.")
 # OCR Modelini Yükle
 @st.cache_resource
 def load_model():
-    # Parametreleri en sade haline getirdik. Hata çıkaran her şeyi kaldırdık.
-    return PaddleOCR(lang='en')
+    # enable_mkldnn=False diyerek hatayı kökten çözüyoruz.
+    # use_angle_cls=False ile gereksiz açı kontrolünü kapatıp hız kazanıyoruz.
+    return PaddleOCR(lang='en', enable_mkldnn=False, use_angle_cls=False)
 
 try:
     with st.spinner("Sistem Hazırlanıyor..."):
@@ -46,9 +53,8 @@ if st.button("Analizi Başlat"):
 
                 # 2. OCR İşlemi
                 if img is not None:
-                    # HATA ÇÖZÜMÜ: cls=True parametresini sildik.
-                    # Artık sadece resmi veriyoruz, model kendisi hallediyor.
-                    result = ocr_model.ocr(img)
+                    # cls=True parametresini kaldırdık, düz okuma yapacak.
+                    result = ocr_model.ocr(img, cls=False)
 
                     # 3. Sonucu Yakala
                     plaka_metni = "Okunamadı"
