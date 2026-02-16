@@ -8,34 +8,32 @@ from PIL import Image
 st.set_page_config(page_title="Otopark Plaka Tanıma", layout="wide")
 
 st.title("☁️ Bulut Otopark Sistemi")
-st.info("Bu sistem 7/24 Aktiftir. Bilgisayar kapalıyken de çalışır.")
+st.info("Bu sistem 7/24 Aktiftir.")
 
 # OCR Modelini Yükle
 @st.cache_resource
 def load_model():
-    # DÜZELTME: 'show_log' parametresini sildik çünkü yeni versiyonda hata veriyor.
-    # 'use_angle_cls' uyarısı almamak için parametreyi kaldırdık veya varsayılan bıraktık.
-    # En temiz haliyle sadece dil seçeneğini bırakıyoruz, diğer ayarları varsayılan kullanacak.
+    # Parametreleri en sade haline getirdik. Hata çıkaran her şeyi kaldırdık.
     return PaddleOCR(lang='en')
 
 try:
-    with st.spinner("OCR Motoru Hazırlanıyor... (Bu işlem ilk seferde 1-2 dk sürebilir)"):
+    with st.spinner("Sistem Hazırlanıyor..."):
         ocr_model = load_model()
-    st.success("✅ OCR Motoru Hazır!")
+    st.success("✅ Sistem Hazır!")
 except Exception as e:
-    st.error(f"OCR Modeli yüklenirken hata oluştu: {e}")
+    st.error(f"Model yüklenirken hata: {e}")
 
 # Otopark Seçimi
 otoparklar = ["Kadıköy", "Beşiktaş", "Nişantaşı"]
 secim = st.selectbox("Lokasyon Seç:", otoparklar)
 
 # Fotoğraf Yükleme Alanı
-dosyalar = st.file_uploader("Fotoğrafları Yükle (Çoklu Seçim)", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
+dosyalar = st.file_uploader("Fotoğrafları Yükle", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
 
 # --- ANALİZ BUTONU ---
 if st.button("Analizi Başlat"):
     if dosyalar:
-        st.write(f"🔍 {len(dosyalar)} adet fotoğraf taranıyor...")
+        st.write(f"🔍 {len(dosyalar)} fotoğraf taranıyor...")
         
         sonuclar = []
         bar = st.progress(0)
@@ -48,14 +46,15 @@ if st.button("Analizi Başlat"):
 
                 # 2. OCR İşlemi
                 if img is not None:
-                    # cls=True parametresini burada kullanıyoruz, açı düzeltme için yeterli.
-                    result = ocr_model.ocr(img, cls=True)
+                    # HATA ÇÖZÜMÜ: cls=True parametresini sildik.
+                    # Artık sadece resmi veriyoruz, model kendisi hallediyor.
+                    result = ocr_model.ocr(img)
 
                     # 3. Sonucu Yakala
                     plaka_metni = "Okunamadı"
                     if result and result[0]:
                         # En güvenilir metinleri al
-                        txts = [line[1][0] for line in result[0] if line[1]] # Boş sonuçları filtrele
+                        txts = [line[1][0] for line in result[0] if line[1]] 
                         plaka_metni = ", ".join(txts)
                     
                     sonuclar.append({"Dosya": dosya.name, "Okunan": plaka_metni})
@@ -64,10 +63,9 @@ if st.button("Analizi Başlat"):
                     with st.expander(f"📸 {dosya.name} -> {plaka_metni}"):
                         st.image(dosya, width=300)
                 else:
-                    st.error(f"{dosya.name} dosyası bozuk veya okunamadı.")
+                    st.error(f"{dosya.name} okunamadı.")
             
             except Exception as e:
-                # Hata olsa bile döngüyü kırma, diğer fotoğrafa geç
                 st.error(f"Hata ({dosya.name}): {e}")
 
             # İlerleme çubuğunu güncelle
