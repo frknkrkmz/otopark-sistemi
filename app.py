@@ -1,53 +1,28 @@
-import os
-
-# --- KRİTİK AYARLAR (EN BAŞTA OLmalı) ---
-# Paddle 3.0'ın yeni motorunu (PIR) ve MKLDNN hızlandırmayı zorla kapatıyoruz.
-# Aldığın "ConvertPirAttribute" hatasının kesin çözümü budur.
-os.environ["FLAGS_enable_pir_api"] = "0"
-os.environ["FLAGS_enable_pir_in_executor"] = "0"
-os.environ["FLAGS_use_mkldnn"] = "0"
-os.environ["FLAGS_dn_enable_mkldnn"] = "0"
-
 import streamlit as st
-import paddle
+import easyocr
 import cv2
 import numpy as np
-from paddleocr import PaddleOCR
 from PIL import Image
-
-# --- SİHİRLİ YAMA (MONKEY PATCH) ---
-# 'set_optimization_level' hatasını önlemek için koruma kalkanı.
-try:
-    if hasattr(paddle, 'inference') and hasattr(paddle.inference, 'Config'):
-        paddle.inference.Config.set_optimization_level = lambda self, x: None
-    
-    try:
-        from paddle.base.libpaddle import AnalysisConfig
-        AnalysisConfig.set_optimization_level = lambda self, x: None
-    except ImportError:
-        pass
-except Exception:
-    pass
-# -----------------------------------
 
 # Sayfa ayarı
 st.set_page_config(page_title="Otopark Plaka Tanıma", layout="wide")
 
 st.title("☁️ Bulut Otopark Sistemi")
-st.info("Sistem Hazır! (Güvenli Mod v3.0)")
+st.info("Sistem Hazır! (EasyOCR Modu)")
 
-# OCR Modelini Yükle
+# OCR Modelini Yükle (Önbelleğe alıyoruz)
 @st.cache_resource
 def load_model():
-    # Tüm hızlandırmaları kapattık, en güvenli modda çalışacak.
-    return PaddleOCR(lang='en', use_angle_cls=False, enable_mkldnn=False)
+    # 'en' parametresi İngilizce karakterler (plakalar) için yeterlidir.
+    # gpu=False diyerek sunucuda sadece işlemci kullanmasını sağlıyoruz.
+    return easyocr.Reader(['en'], gpu=False)
 
 try:
-    with st.spinner("Sistem Başlatılıyor..."):
-        ocr_model = load_model()
-    st.success("✅ Motor Hazır!")
+    with st.spinner("OCR Modeli Yükleniyor..."):
+        reader = load_model()
+    st.success("✅ Sistem Çalışıyor!")
 except Exception as e:
-    st.error(f"Başlatma Hatası: {e}")
+    st.error(f"Model Yükleme Hatası: {e}")
 
 # Otopark Seçimi
 otoparklar = ["Kadıköy", "Beşiktaş", "Nişantaşı"]
@@ -72,14 +47,16 @@ if st.button("Analizi Başlat"):
 
                 # 2. OCR İşlemi
                 if img is not None:
-                    # Parametresiz sade çağrı
-                    result = ocr_model.ocr(img)
+                    # EasyOCR okuması
+                    results = reader.readtext(img)
 
                     # 3. Sonucu Yakala
                     plaka_metni = "Okunamadı"
-                    if result and result[0]:
-                        txts = [line[1][0] for line in result[0] if line[1]] 
-                        plaka_metni = ", ".join(txts)
+                    if results:
+                        # EasyOCR çıktısı: (bbox, text, prob)
+                        # Biz sadece text kısmını alıp birleştiriyoruz.
+                        bulunanlar = [res[1] for res in results if res[2] > 0.2] # %20 üzeri güvenilirlik
+                        plaka_metni = ", ".join(bulunanlar)
                     
                     sonuclar.append({"Dosya": dosya.name, "Okunan": plaka_metni})
                     
@@ -91,6 +68,7 @@ if st.button("Analizi Başlat"):
             except Exception as e:
                 st.error(f"Hata ({dosya.name}): {e}")
 
+            # İlerleme çubuğunu güncelle
             bar.progress((i + 1) / len(dosyalar))
 
         st.success("✅ İşlem Tamamlandı!")
