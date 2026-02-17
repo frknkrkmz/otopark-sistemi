@@ -1,100 +1,88 @@
 import streamlit as st
-import easyocr
 import cv2
+import re
 import numpy as np
-import re  # Regex kütüphanesi eklendi
+from paddleocr import PaddleOCR
+import pandas as pd
+from PIL import Image
+import tempfile
+import os
 
-# Sayfa ayarı
-st.set_page_config(page_title="Otopark Plaka Tanıma", layout="wide")
+st.set_page_config(page_title="Plaka Tanıma Sistemi", layout="wide")
 
-st.title("☁️ Bulut Otopark Sistemi")
-st.info("Sistem Hazır! (Akıllı Plaka Filtresi Aktif)")
+st.title("🚗 Toplu Plaka Tanıma Sistemi")
 
-# OCR Modelini Yükle
 @st.cache_resource
-def load_model():
-    return easyocr.Reader(['en'], gpu=False)
+def load_ocr():
+    return PaddleOCR(use_angle_cls=True, lang='en')
 
-try:
-    with st.spinner("OCR Modeli Yükleniyor..."):
-        reader = load_model()
-    st.success("✅ Sistem Çalışıyor!")
-except Exception as e:
-    st.error(f"Model Yükleme Hatası: {e}")
+ocr = load_ocr()
 
-# Türkiye Plaka Regex Kuralı
-# 01-81 ile başlar + Harfler + Rakamlar
-def plaka_bul(metin_listesi):
-    # OCR'dan gelen parça parça metinleri birleştiriyoruz
-    birlesik_metin = " ".join(metin_listesi).upper()
-    
-    # Gereksiz karakterleri temizle (TR yazısı, noktalar vs.)
-    temiz_metin = birlesik_metin.replace("TR", "").replace(".", "").replace("-", " ")
-    
-    # Regex: (İl Kodu) (Harfler) (Rakamlar)
-    # Örnek: 16 AEJ 51, 34 AB 1234
-    kural = r'\b(0[1-8]|[1-7][0-9]|8[0-1])\s*[A-Z]{1,3}\s*\d{2,4}\b'
-    
-    match = re.search(kural, temiz_metin)
-    if match:
-        return match.group(0) # Bulunan plakayı döndür
-    else:
-        return None # Plaka formatı bulunamadı
+# Plaka Kontrol Fonksiyonu
+def plaka_kontrol(metin):
+    temiz_metin = re.sub(r'[^A-Z0-9]', '', metin.upper())
+    model = r"^\d{2}[A-Z]{1,3}\d{2,5}$"
+    if re.match(model, temiz_metin):
+        return True, temiz_metin
+    return False, None
 
-# Otopark Seçimi
-otoparklar = ["Kadıköy", "Beşiktaş", "Nişantaşı"]
-secim = st.selectbox("Lokasyon Seç:", otoparklar)
+uploaded_files = st.file_uploader(
+    "Fotoğrafları seçin",
+    type=["jpg", "jpeg", "png", "bmp"],
+    accept_multiple_files=True
+)
 
-# Fotoğraf Yükleme Alanı
-dosyalar = st.file_uploader("Fotoğrafları Yükle", accept_multiple_files=True, type=['png', 'jpg', 'jpeg'])
+if uploaded_files:
 
-# --- ANALİZ BUTONU ---
-if st.button("Analizi Başlat"):
-    if dosyalar:
-        st.write(f"🔍 {len(dosyalar)} fotoğraf taranıyor...")
-        
-        sonuclar = []
-        bar = st.progress(0)
-        
-        for i, dosya in enumerate(dosyalar):
-            try:
-                # 1. Dosyayı OpenCV formatına çevir
-                file_bytes = np.asarray(bytearray(dosya.read()), dtype=np.uint8)
-                img = cv2.imdecode(file_bytes, 1)
+    veriler = []
+    progress_bar = st.progress(0)
+    toplam = len(uploaded_files)
 
-                # 2. OCR İşlemi
-                if img is not None:
-                    results = reader.readtext(img)
+    for i, uploaded_file in enumerate(uploaded_files):
 
-                    plaka_sonuc = "Plaka Bulunamadı"
-                    if results:
-                        # Tüm okunan metinleri bir listeye al
-                        okunanlar = [res[1] for res in results if res[2] > 0.2]
-                        
-                        # Fonksiyona gönder, sadece plakayı ayıklasın
-                        bulunan_plaka = plaka_bul(okunanlar)
-                        
-                        if bulunan_plaka:
-                            plaka_sonuc = bulunan_plaka
-                        else:
-                            # Eğer formatı yakalayamazsa yine de ham metni gösterelim (Debug için)
-                            plaka_sonuc = f"Format Yakalanamadı: {', '.join(okunanlar)}"
-                    
-                    sonuclar.append({"Dosya": dosya.name, "Plaka": plaka_sonuc})
-                    
-                    with st.expander(f"📸 {dosya.name} -> {plaka_sonuc}"):
-                        st.image(dosya, width=300)
-                else:
-                    st.error(f"{dosya.name} okunamadı.")
-            
-            except Exception as e:
-                st.error(f"Hata ({dosya.name}): {e}")
+        image = Image.open(uploaded_file)
+        image_np = np.array(image)
 
-            bar.progress((i + 1) / len(dosyalar))
+        bulunan_plaka = "TESPIT_EDILEMEDI"
+        en_yuksek_skor = 0.0
 
-        st.success("✅ İşlem Tamamlandı!")
-        if sonuclar:
-            st.table(sonuclar)
+        result = ocr.ocr(image_np, cls=True)
 
-    else:
-        st.warning("⚠️ Lütfen önce fotoğraf yükleyin.")
+        if result and result[0]:
+            for line in result[0]:
+                metin = line[1][0]
+                skor = line[1][1]
+
+                yasakli_kelimeler = ["OTOPARK", "TURKIYE", "TR", "ISTANBUL", "BURSA", "CADDE", "SOKAK"]
+                if any(y in metin.upper() for y in yasakli_kelimeler):
+                    continue
+
+                uygun_mu, temiz_plaka = plaka_kontrol(metin)
+
+                if uygun_mu and skor > en_yuksek_skor:
+                    bulunan_plaka = temiz_plaka
+                    en_yuksek_skor = skor
+
+        veriler.append({
+            "Dosya Adı": uploaded_file.name,
+            "Plaka": bulunan_plaka,
+            "Güven Skoru": en_yuksek_skor
+        })
+
+        progress_bar.progress((i + 1) / toplam)
+
+    df = pd.DataFrame(veriler)
+
+    st.success("İşlem tamamlandı!")
+    st.dataframe(df)
+
+    excel_file = "plaka_sonuclari.xlsx"
+    df.to_excel(excel_file, index=False)
+
+    with open(excel_file, "rb") as f:
+        st.download_button(
+            label="📥 Excel İndir",
+            data=f,
+            file_name=excel_file,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
