@@ -14,12 +14,11 @@ st.write("Fotoğrafları yükleyin, plakalar otomatik tespit edilsin.")
 # ----------------------------
 # OCR MODELİ (CACHE'Lİ)
 # ----------------------------
-@st.cache_resource(show_spinner=True)
+@@st.cache_resource
 def load_ocr():
     return PaddleOCR(
-        use_angle_cls=True,
-        lang='en',
-        show_log=False
+        use_angle_cls=False,
+        lang='en'
     )
 
 ocr = load_ocr()
@@ -109,3 +108,4 @@ if uploaded_files:
         file_name="plaka_sonuclari.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
