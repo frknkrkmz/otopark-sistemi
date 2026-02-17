@@ -2,19 +2,17 @@ import streamlit as st
 import easyocr
 import cv2
 import numpy as np
-from PIL import Image
+import re  # Regex kütüphanesi eklendi
 
 # Sayfa ayarı
 st.set_page_config(page_title="Otopark Plaka Tanıma", layout="wide")
 
 st.title("☁️ Bulut Otopark Sistemi")
-st.info("Sistem Hazır! (EasyOCR Modu)")
+st.info("Sistem Hazır! (Akıllı Plaka Filtresi Aktif)")
 
-# OCR Modelini Yükle (Önbelleğe alıyoruz)
+# OCR Modelini Yükle
 @st.cache_resource
 def load_model():
-    # 'en' parametresi İngilizce karakterler (plakalar) için yeterlidir.
-    # gpu=False diyerek sunucuda sadece işlemci kullanmasını sağlıyoruz.
     return easyocr.Reader(['en'], gpu=False)
 
 try:
@@ -23,6 +21,25 @@ try:
     st.success("✅ Sistem Çalışıyor!")
 except Exception as e:
     st.error(f"Model Yükleme Hatası: {e}")
+
+# Türkiye Plaka Regex Kuralı
+# 01-81 ile başlar + Harfler + Rakamlar
+def plaka_bul(metin_listesi):
+    # OCR'dan gelen parça parça metinleri birleştiriyoruz
+    birlesik_metin = " ".join(metin_listesi).upper()
+    
+    # Gereksiz karakterleri temizle (TR yazısı, noktalar vs.)
+    temiz_metin = birlesik_metin.replace("TR", "").replace(".", "").replace("-", " ")
+    
+    # Regex: (İl Kodu) (Harfler) (Rakamlar)
+    # Örnek: 16 AEJ 51, 34 AB 1234
+    kural = r'\b(0[1-8]|[1-7][0-9]|8[0-1])\s*[A-Z]{1,3}\s*\d{2,4}\b'
+    
+    match = re.search(kural, temiz_metin)
+    if match:
+        return match.group(0) # Bulunan plakayı döndür
+    else:
+        return None # Plaka formatı bulunamadı
 
 # Otopark Seçimi
 otoparklar = ["Kadıköy", "Beşiktaş", "Nişantaşı"]
@@ -47,20 +64,25 @@ if st.button("Analizi Başlat"):
 
                 # 2. OCR İşlemi
                 if img is not None:
-                    # EasyOCR okuması
                     results = reader.readtext(img)
 
-                    # 3. Sonucu Yakala
-                    plaka_metni = "Okunamadı"
+                    plaka_sonuc = "Plaka Bulunamadı"
                     if results:
-                        # EasyOCR çıktısı: (bbox, text, prob)
-                        # Biz sadece text kısmını alıp birleştiriyoruz.
-                        bulunanlar = [res[1] for res in results if res[2] > 0.2] # %20 üzeri güvenilirlik
-                        plaka_metni = ", ".join(bulunanlar)
+                        # Tüm okunan metinleri bir listeye al
+                        okunanlar = [res[1] for res in results if res[2] > 0.2]
+                        
+                        # Fonksiyona gönder, sadece plakayı ayıklasın
+                        bulunan_plaka = plaka_bul(okunanlar)
+                        
+                        if bulunan_plaka:
+                            plaka_sonuc = bulunan_plaka
+                        else:
+                            # Eğer formatı yakalayamazsa yine de ham metni gösterelim (Debug için)
+                            plaka_sonuc = f"Format Yakalanamadı: {', '.join(okunanlar)}"
                     
-                    sonuclar.append({"Dosya": dosya.name, "Okunan": plaka_metni})
+                    sonuclar.append({"Dosya": dosya.name, "Plaka": plaka_sonuc})
                     
-                    with st.expander(f"📸 {dosya.name} -> {plaka_metni}"):
+                    with st.expander(f"📸 {dosya.name} -> {plaka_sonuc}"):
                         st.image(dosya, width=300)
                 else:
                     st.error(f"{dosya.name} okunamadı.")
@@ -68,7 +90,6 @@ if st.button("Analizi Başlat"):
             except Exception as e:
                 st.error(f"Hata ({dosya.name}): {e}")
 
-            # İlerleme çubuğunu güncelle
             bar.progress((i + 1) / len(dosyalar))
 
         st.success("✅ İşlem Tamamlandı!")
